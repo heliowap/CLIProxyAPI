@@ -785,6 +785,47 @@ nonstream-keepalive-interval: 0
 #         alias: "claude-opus-4.66"
 #       - name: "kimi-k2.5"
 #         alias: "claude-opus-4.66"
+#   - name: "opencode-go" # OpenCode Go gateway (https://opencode.ai/docs/go). Model list: https://opencode.ai/zen/go/v1/models
+#     base-url: "https://opencode.ai/zen/go/v1" # The base URL of the provider.
+#     headers: # optional: recommended attribution headers for OpenCode gateways
+#       HTTP-Referer: "https://github.com/router-for-me/CLIProxyAPI"
+#       X-Title: "CLIProxyAPI"
+#     api-key-entries:
+#       - api-key: "sk-...opencode-go-key" # API key from the OpenCode Zen console (Go subscription)
+#     models: # Muse Spark 1.3 Contributor via the OpenCode Go API. Upstream endpoint per OpenCode docs is /responses.
+#       - name: "muse-spark-1.3-contributor" # The actual upstream model name.
+#         alias: "cpa-ocgo-muse-spark-1.3-contributor" # Cursor slug: add this bare ID to Cursor Settings -> Models -> API Keys list
+#         display-name: "Muse Spark 1.3 Contributor" # optional catalog display name
+#         max-context-length: 1048576 # optional: override Codex client context window metadata (upstream: 1048576 context, 131072 output)
+#         input-modalities: [text, image] # optional: declare multimodal input for Codex clients
+#         output-modalities: [text] # optional: declare output modalities when known
+#         thinking: # 3 effort levels; clients can also use suffix syntax, e.g. cpa-ocgo-muse-spark-1.3-contributor(high), or reasoning_effort
+#           levels: ["medium", "high", "xhigh"]
+#       # Cursor slugs for each effort level (same upstream model, client-visible pinned variants).
+#       - name: "muse-spark-1.3-contributor"
+#         alias: "cpa-ocgo-muse-spark-1.3-contributor(medium)"
+#         display-name: "Muse Spark 1.3 Contributor (medium)"
+#         max-context-length: 1048576
+#         input-modalities: [text, image]
+#         output-modalities: [text]
+#         thinking:
+#           levels: ["medium", "high", "xhigh"]
+#       - name: "muse-spark-1.3-contributor"
+#         alias: "cpa-ocgo-muse-spark-1.3-contributor(high)"
+#         display-name: "Muse Spark 1.3 Contributor (high)"
+#         max-context-length: 1048576
+#         input-modalities: [text, image]
+#         output-modalities: [text]
+#         thinking:
+#           levels: ["medium", "high", "xhigh"]
+#       - name: "muse-spark-1.3-contributor"
+#         alias: "cpa-ocgo-muse-spark-1.3-contributor(xhigh)"
+#         display-name: "Muse Spark 1.3 Contributor (xhigh)"
+#         max-context-length: 1048576
+#         input-modalities: [text, image]
+#         output-modalities: [text]
+#         thinking:
+#           levels: ["medium", "high", "xhigh"]
 
 # Vertex API keys (Vertex-compatible endpoints, base-url is optional)
 # vertex-api-key:
