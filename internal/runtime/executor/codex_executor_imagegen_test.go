@@ -271,6 +271,30 @@ func TestEnsureImageGenerationTool_GPT53CodexSparkDoesNotInjectTool(t *testing.T
 	}
 }
 
+func TestEnsureImageGenerationTool_MuseSparkDoesNotInjectTool(t *testing.T) {
+	body := []byte(`{"model":"muse-spark-1.3-contributor","input":"say ok"}`)
+	result := ensureImageGenerationTool(body, "muse-spark-1.3-contributor", nil, nil)
+
+	if string(result) != string(body) {
+		t.Fatalf("expected body to be unchanged, got %s", string(result))
+	}
+	if gjson.GetBytes(result, "tools").Exists() {
+		t.Fatalf("expected no tools for muse-spark-1.3-contributor, got %s", gjson.GetBytes(result, "tools").Raw)
+	}
+}
+
+func TestEnsureImageGenerationTool_Grok45DoesNotInjectTool(t *testing.T) {
+	body := []byte(`{"model":"grok-4.5","input":"say ok"}`)
+	result := ensureImageGenerationTool(body, "grok-4.5", nil, nil)
+
+	if string(result) != string(body) {
+		t.Fatalf("expected body to be unchanged, got %s", string(result))
+	}
+	if gjson.GetBytes(result, "tools").Exists() {
+		t.Fatalf("expected no tools for grok-4.5, got %s", gjson.GetBytes(result, "tools").Raw)
+	}
+}
+
 func TestEnsureImageGenerationTool_FreeCodexAuthDoesNotInjectTool(t *testing.T) {
 	body := []byte(`{"model":"gpt-5.4","input":"draw a cat"}`)
 	freeAuth := &cliproxyauth.Auth{

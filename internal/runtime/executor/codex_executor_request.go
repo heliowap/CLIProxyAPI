@@ -366,7 +366,14 @@ func ensureImageGenerationTool(body []byte, baseModel string, auth *cliproxyauth
 	if util.IsCodexResponsesLiteRequest(body, headers) {
 		return body
 	}
-	if strings.HasSuffix(baseModel, "spark") {
+	// Spark-family models (e.g. gpt-5.3-codex-spark, muse-spark-1.3-contributor)
+	// reject the image_generation tool type upstream.
+	if strings.Contains(strings.ToLower(baseModel), "spark") {
+		return body
+	}
+	// xAI's grok-4.5 endpoint strictly validates tool schemas and rejects the
+	// image_generation tool type (HTTP 400 unknown discriminator value).
+	if strings.EqualFold(baseModel, "grok-4.5") {
 		return body
 	}
 	if isCodexFreePlanAuth(auth) {
