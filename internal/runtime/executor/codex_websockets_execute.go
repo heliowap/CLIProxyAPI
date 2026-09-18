@@ -47,7 +47,7 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	isCompat := e.resolveCodexModelIsCompat(auth, req, baseModel)
 	originalTranslated, body := translateCodexRequestPair(from, to, baseModel, originalPayload, req.Payload, false, isCompat)
 
-	body, err = helps.ApplyRequestThinking(body, req, opts, from.String(), to.String(), e.Identifier())
+	body, err = helps.ApplyRequestThinking(body, helps.CodexThinkingRequest(req), opts, from.String(), to.String(), e.Identifier())
 	if err != nil {
 		return resp, err
 	}
@@ -56,6 +56,7 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	requestPath := helps.PayloadRequestPath(opts)
 	body = helps.ApplyPayloadConfigWithRequest(e.cfg, baseModel, to.String(), from.String(), "", body, originalTranslated, requestedModel, requestPath, opts.Headers)
 	body = helps.SetStringIfDifferent(body, "model", baseModel)
+	body = helps.ApplyCodexFastServiceTier(body, req.Model)
 	body = helps.SetBoolIfDifferent(body, "stream", true)
 	body, _ = sjson.DeleteBytes(body, "prompt_cache_retention")
 	body, _ = sjson.DeleteBytes(body, "safety_identifier")

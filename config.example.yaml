@@ -1002,6 +1002,9 @@ nonstream-keepalive-interval: 0
 #       params: # JSON path (gjson/sjson syntax) -> raw JSON value (strings are used as-is, must be valid JSON)
 #         "generationConfig.responseJsonSchema": "{\"type\":\"object\",\"properties\":{\"answer\":{\"type\":\"string\"}}}"
 #   override: # Override rules always set parameters, overwriting any existing values.
+#     # Codex Fast-capable models can also use a suffix such as (fast) or
+#     # (fast-high). Fast maps to service_tier=priority; an optional second
+#     # token selects the reasoning effort independently.
 #     - models:
 #         - name: "gpt-5.4-fast"
 #           protocol: "codex"

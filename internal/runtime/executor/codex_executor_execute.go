@@ -47,7 +47,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 	isCompat := e.resolveCodexModelIsCompat(auth, req, baseModel)
 	originalTranslated, body := translateCodexRequestPair(from, to, baseModel, originalPayload, req.Payload, false, isCompat)
 
-	body, err = helps.ApplyRequestThinking(body, req, opts, from.String(), to.String(), e.Identifier())
+	body, err = helps.ApplyRequestThinking(body, helps.CodexThinkingRequest(req), opts, from.String(), to.String(), e.Identifier())
 	if err != nil {
 		return resp, err
 	}
@@ -56,6 +56,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 	requestPath := helps.PayloadRequestPath(opts)
 	body = helps.ApplyPayloadConfigWithRequest(e.cfg, baseModel, to.String(), from.String(), "", body, originalTranslated, requestedModel, requestPath, opts.Headers)
 	body = helps.SetStringIfDifferent(body, "model", baseModel)
+	body = helps.ApplyCodexFastServiceTier(body, req.Model)
 	body = helps.SetBoolIfDifferent(body, "stream", true)
 	body, _ = sjson.DeleteBytes(body, "previous_response_id")
 	body, _ = sjson.DeleteBytes(body, "generate")
@@ -232,7 +233,7 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 	isCompat := e.resolveCodexModelIsCompat(auth, req, baseModel)
 	originalTranslated, body := translateCodexRequestPair(from, to, baseModel, originalPayload, req.Payload, false, isCompat)
 
-	body, err = helps.ApplyRequestThinking(body, req, opts, from.String(), to.String(), e.Identifier())
+	body, err = helps.ApplyRequestThinking(body, helps.CodexThinkingRequest(req), opts, from.String(), to.String(), e.Identifier())
 	if err != nil {
 		return resp, err
 	}
@@ -241,6 +242,7 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 	requestPath := helps.PayloadRequestPath(opts)
 	body = helps.ApplyPayloadConfigWithRequest(e.cfg, baseModel, to.String(), from.String(), "", body, originalTranslated, requestedModel, requestPath, opts.Headers)
 	body = helps.SetStringIfDifferent(body, "model", baseModel)
+	body = helps.ApplyCodexFastServiceTier(body, req.Model)
 	body, _ = sjson.DeleteBytes(body, "stream")
 	body = normalizeCodexInstructions(body, helps.IsNativeCodexRequest(req.Payload, opts))
 	body = sanitizeOpenAIResponsesReasoningEncryptedContentWithCompat(ctx, "codex executor", body, isCompat)
