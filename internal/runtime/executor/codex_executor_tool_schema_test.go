@@ -5,14 +5,71 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
 	"github.com/tidwall/gjson"
 )
+
+func TestCodexExecutorCompatBreaksRecursiveNamespaceToolSchema(t *testing.T) {
+	var gotBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var errRead error
+		gotBody, errRead = io.ReadAll(r.Body)
+		if errRead != nil {
+			t.Errorf("read request body: %v", errRead)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"status\":\"completed\",\"output\":[]}}\n\n"))
+	}))
+	defer server.Close()
+
+	requestPayload := []byte(`{
+		"model":"muse-spark-1.3-contributor",
+		"input":"Reply OK",
+		"tools":[{"type":"namespace","name":"mcp__gmail","description":"Gmail tools","tools":[{
+			"type":"function","name":"_send_email","description":"Send an email",
+			"parameters":{"type":"object","properties":{"part":{"$ref":"#/$defs/GmailMessagePartRequest"}},
+				"$defs":{"GmailMessagePartRequest":{"type":"object","properties":{"body":{"type":"string"},"parts":{"type":"array","items":{"$ref":"#/$defs/GmailMessagePartRequest"}}}}}}
+		},{"type":"function","name":"_list_labels","description":"List labels","parameters":{"type":"object","properties":{"query":{"$ref":"#/$defs/Query"}},"$defs":{"Query":{"type":"string"}}}}]},{"type":"web_search","external_web_access":true,"search_content_types":["text","image"]}]
+	}`)
+	request := cliproxyexecutor.Request{
+		Model:    "muse-spark-1.3-contributor",
+		Payload:  requestPayload,
+		Metadata: map[string]any{"cliproxy.resolved_api_key_model_info": &registry.ModelInfo{IsCompat: true}},
+	}
+	auth := &cliproxyauth.Auth{Provider: "codex", Attributes: map[string]string{"base_url": server.URL, "api_key": "test"}}
+	_, err := NewCodexExecutor(&config.Config{}).Execute(context.Background(), auth, request, cliproxyexecutor.Options{
+		SourceFormat: sdktranslator.FromString("openai-response"),
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !gjson.ValidBytes(gotBody) {
+		t.Fatalf("upstream request is invalid JSON")
+	}
+	if strings.Contains(string(gotBody), `"$ref":"#/$defs/GmailMessagePartRequest"`) {
+		t.Fatalf("recursive Gmail tool schema was sent unchanged")
+	}
+	if !strings.Contains(string(gotBody), "GmailMessagePartRequest") || !strings.Contains(string(gotBody), "body") {
+		t.Fatalf("Gmail tool schema lost its fields")
+	}
+	if !strings.Contains(string(gotBody), `"$ref":"#/$defs/Query"`) {
+		t.Fatalf("acyclic tool reference was modified")
+	}
+	if got := gjson.GetBytes(gotBody, "tools.1.type").String(); got != "web_search" {
+		t.Fatalf("web search tool type = %q, want web_search", got)
+	}
+	if gjson.GetBytes(gotBody, "tools.1.search_content_types").Exists() {
+		t.Fatalf("unsupported search_content_types was sent to compatibility backend")
+	}
+}
 
 // Issue #5551: Tool schema with 13-branch oneOf causes ChatGPT Codex upstream
 // to abort silently. The executor must simplify the complex union without destroying

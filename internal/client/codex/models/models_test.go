@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
@@ -132,7 +133,7 @@ func TestCodexClientModelsResponse_InputModalitiesFromRegistry(t *testing.T) {
 
 func TestCodexClientModelsResponse_AppliesDisplayNameToTemplateModel(t *testing.T) {
 	resp := BuildResponse([]map[string]any{{
-		"id":           "gpt-5.5",
+		"id":           "gpt-5.6-sol",
 		"display_name": "Configured Codex Name",
 	}}, nil, false)
 	models, ok := resp["models"].([]map[string]any)
@@ -145,7 +146,7 @@ func TestCodexClientModelsResponse_AppliesDisplayNameToTemplateModel(t *testing.
 }
 
 func TestCodexClientModelsResponse_RewritesTemplateMultiAgentVersionWhenEnabled(t *testing.T) {
-	modelIDs := []string{"gpt-5.6-luna", "gpt-5.5"}
+	modelIDs := []string{"gpt-5.6-luna", "gpt-5.6-sol"}
 	resp := BuildResponse([]map[string]any{{"id": modelIDs[0]}, {"id": modelIDs[1]}}, nil, true)
 	models, ok := resp["models"].([]map[string]any)
 	if !ok {
@@ -162,7 +163,7 @@ func TestCodexClientModelsResponse_RewritesTemplateMultiAgentVersionWhenEnabled(
 func TestCodexClientModelsResponse_DisablesSearchToolForSynthesizedModels(t *testing.T) {
 	resp := BuildResponse([]map[string]any{
 		{"id": "custom-openai-compatible-model"},
-		{"id": "gpt-5.5"},
+		{"id": "gpt-5.6-sol"},
 	}, nil, false)
 	models, ok := resp["models"].([]map[string]any)
 	if !ok {
@@ -182,7 +183,7 @@ func TestCodexClientModelsResponse_DisablesSearchToolForSynthesizedModels(t *tes
 		t.Fatalf("custom supports_search_tool = %#v, want false", custom["supports_search_tool"])
 	}
 
-	official := bySlug["gpt-5.5"]
+	official := bySlug["gpt-5.6-sol"]
 	if official == nil {
 		t.Fatal("expected official template model entry")
 	}
@@ -193,14 +194,14 @@ func TestCodexClientModelsResponse_DisablesSearchToolForSynthesizedModels(t *tes
 
 func TestCodexClientModelsResponse_RequiresTemplateAndCodexProvidersForSearchTool(t *testing.T) {
 	providers := map[string][]string{
-		"new-codex-model": {"codex"},
-		"gpt-5.5":         {"openai-compatible-deepseek"},
-		"gpt-5.4":         {"codex", "xai"},
-		"gpt-5.6-sol":     {"codex"},
+		"new-codex-model":   {"codex"},
+		"legacy-route-test": {"openai-compatible-deepseek"},
+		"gpt-5.4":           {"codex", "xai"},
+		"gpt-5.6-sol":       {"codex"},
 	}
 	resp := BuildResponse([]map[string]any{
 		{"id": "new-codex-model"},
-		{"id": "gpt-5.5"},
+		{"id": "legacy-route-test"},
 		{"id": "gpt-5.4"},
 		{"id": "gpt-5.6-sol"},
 	}, func(id string) []string {
@@ -219,10 +220,13 @@ func TestCodexClientModelsResponse_RequiresTemplateAndCodexProvidersForSearchToo
 	if got, ok := bySlug["gpt-5.6-sol"]["supports_search_tool"].(bool); !ok || !got {
 		t.Errorf("gpt-5.6-sol supports_search_tool = %#v, want true", bySlug["gpt-5.6-sol"]["supports_search_tool"])
 	}
-	for _, slug := range []string{"new-codex-model", "gpt-5.5", "gpt-5.4"} {
+	for _, slug := range []string{"new-codex-model", "legacy-route-test"} {
 		if got, ok := bySlug[slug]["supports_search_tool"].(bool); !ok || got {
 			t.Errorf("%s supports_search_tool = %#v, want false", slug, bySlug[slug]["supports_search_tool"])
 		}
+	}
+	if got := stringModelValue(bySlug["gpt-5.4"], "visibility"); got != "hide" {
+		t.Errorf("pre-5.6 GPT model visibility = %q, want hide", got)
 	}
 }
 
@@ -390,9 +394,9 @@ func TestCodexClientModelsResponseAppliesMaxContextLengthOverride(t *testing.T) 
 	const wantDefault = 272000
 
 	resp := BuildResponse([]map[string]any{
-		{"id": "deepseek-v4-flash", "max_context_length": wantOverride},
-		{"id": "deepseek-v4-pro"},
-		{"id": "gpt-5.5", "max_context_length": wantOverride},
+		{"id": "custom-large-context", "max_context_length": wantOverride},
+		{"id": "custom-default-context"},
+		{"id": "gpt-5.6-sol", "max_context_length": wantOverride},
 	}, nil, false)
 	models, ok := resp["models"].([]map[string]any)
 	if !ok {
@@ -408,9 +412,9 @@ func TestCodexClientModelsResponseAppliesMaxContextLengthOverride(t *testing.T) 
 		slug string
 		want int
 	}{
-		{slug: "deepseek-v4-flash", want: wantOverride},
-		{slug: "deepseek-v4-pro", want: wantDefault},
-		{slug: "gpt-5.5", want: wantOverride},
+		{slug: "custom-large-context", want: wantOverride},
+		{slug: "custom-default-context", want: wantDefault},
+		{slug: "gpt-5.6-sol", want: wantOverride},
 	} {
 		entry := bySlug[testCase.slug]
 		if entry == nil {
@@ -430,7 +434,7 @@ func TestCodexClientModelsResponseMapsMaxCompletionTokensToMaxTokens(t *testing.
 	const wantSynthesizedLimit = 32000
 
 	resp := BuildResponse([]map[string]any{
-		{"id": "gpt-5.5", "max_completion_tokens": wantTemplateLimit},
+		{"id": "gpt-5.6-sol", "max_completion_tokens": wantTemplateLimit},
 		{"id": "custom-output-limit-model", "max_completion_tokens": wantSynthesizedLimit},
 	}, nil, false)
 	models, ok := resp["models"].([]map[string]any)
@@ -447,7 +451,7 @@ func TestCodexClientModelsResponseMapsMaxCompletionTokensToMaxTokens(t *testing.
 		slug string
 		want int
 	}{
-		{slug: "gpt-5.5", want: wantTemplateLimit},
+		{slug: "gpt-5.6-sol", want: wantTemplateLimit},
 		{slug: "custom-output-limit-model", want: wantSynthesizedLimit},
 	} {
 		entry := bySlug[testCase.slug]
@@ -461,7 +465,7 @@ func TestCodexClientModelsResponseMapsMaxCompletionTokensToMaxTokens(t *testing.
 }
 
 func TestCodexClientModelsResponseUsesProvidedCapabilitiesForNewHomeModel(t *testing.T) {
-	const modelID = "gemini-new-home-model-test"
+	const modelID = "new-home-model-test"
 	const wantContextWindow = 1048576
 
 	resp := BuildResponse([]map[string]any{{
@@ -761,8 +765,8 @@ func TestCodexClientModelsResponse_ExplicitRouteOverridesHonored(t *testing.T) {
 	if got := stringModelValue(entry, "slug"); got != "custom-sol" {
 		t.Errorf("slug = %q, want custom-sol", got)
 	}
-	if got := stringModelValue(entry, "display_name"); got != "Overridden Display Name" {
-		t.Errorf("display_name = %q, want Overridden Display Name", got)
+	if got := stringModelValue(entry, "display_name"); got != "Overridden Display Name (OpenAI OAuth)" {
+		t.Errorf("display_name = %q, want Overridden Display Name (OpenAI OAuth)", got)
 	}
 	if got := intModelValue(entry, "context_window"); got != 123456 {
 		t.Errorf("context_window = %d, want 123456", got)
@@ -1423,7 +1427,7 @@ func TestCodexClientModelsResponse_CPAWebSearchCapabilities(t *testing.T) {
 func TestCodexClientModelsResponse_CPAWebSearchCapabilitiesOnlyForCPAClient(t *testing.T) {
 	capabilityLookup := func(string) *bool { value := true; return &value }
 	for _, clientVersion := range []string{"", "0.153.4", "CPA", "cpa-preview"} {
-		resp := BuildResponseForClientWithCPACapabilities([]map[string]any{{"id": "gpt-5.5"}}, nil, capabilityLookup, false, clientVersion)
+		resp := BuildResponseForClientWithCPACapabilities([]map[string]any{{"id": "gpt-5.6-sol"}}, nil, capabilityLookup, false, clientVersion)
 		models, ok := resp["models"].([]map[string]any)
 		if !ok || len(models) != 1 {
 			t.Fatalf("client version %q models = %#v, want one model", clientVersion, resp["models"])
@@ -1541,18 +1545,14 @@ func TestCodexClientModelsResponse_DevinDisplayName(t *testing.T) {
 		slug            string
 		wantDisplayName string
 	}{
-		{"devin/gpt-6-astra", "GPT-6 Astra (Devin)"},
-		{"devin/gpt-5.5", "GPT-5.5 (Devin)"},
 		{"devin/swe-2", "SWE-2 (Devin)"},
-		{"gpt-6-astra", "GPT 6.0 Astra"},
-		{"gpt-5.5", "GPT-5.5"},
-		{"devin/swe-1-7", "SWE-1.7 (Devin)"},
+		{"gpt-6-astra", "GPT 6.0 Astra (OpenAI)"},
 		{"custom-devin-by-type", "Custom Model (Devin)"},
 		{"custom-devin-by-owned", "Cognition Model (Devin)"},
 		{"provider-devin-model", "Provider Model (Devin)"},
 		{"1/devin/swe-2", "SWE-2 (Devin)"},
-		{"my-devin-tool", "My Devin Tool"},
-		{"channel/swe-2", "Channel SWE-2"},
+		{"my-devin-tool", "My Devin Tool (OpenAI)"},
+		{"channel/swe-2", "Channel SWE-2 (OpenAI)"},
 	}
 
 	for _, tc := range testCases {
@@ -1565,5 +1565,126 @@ func TestCodexClientModelsResponse_DevinDisplayName(t *testing.T) {
 		if got != tc.wantDisplayName {
 			t.Errorf("model %q display_name = %q, want %q", tc.slug, got, tc.wantDisplayName)
 		}
+	}
+	for _, hiddenSlug := range []string{"devin/gpt-5.5", "gpt-5.5"} {
+		if got := stringModelValue(bySlug[hiddenSlug], "visibility"); got != "hide" {
+			t.Errorf("pre-5.6 GPT model %q visibility = %q, want hide", hiddenSlug, got)
+		}
+	}
+	for _, removedSlug := range []string{"devin/gpt-6-astra", "devin/swe-1-7"} {
+		if _, exists := bySlug[removedSlug]; exists {
+			t.Errorf("Devin model %q should not be listed", removedSlug)
+		}
+	}
+}
+
+func TestCodexClientCatalogHidesOlderGPTAndReasoningAliases(t *testing.T) {
+	modelIDs := map[string]struct{}{
+		"cpa-ocgo-gpt-5.6-luna":            {},
+		"cpa-ocgo-gpt-5.6-luna(low)":       {},
+		"cpa-ocgo-gpt-5.6-luna(fast)":      {},
+		"cpa-ocgo-gpt-5.6-luna(fast-high)": {},
+		"claude-fable-5":                   {},
+	}
+	tests := []struct {
+		id   string
+		want bool
+	}{
+		{id: "gpt-4.1", want: true},
+		{id: "cpa-codex-gpt-5.5", want: true},
+		{id: "cpa-claude-fable-5", want: true},
+		{id: "claude-sonnet-5", want: true},
+		{id: "cpa-ag-claude-opus-4-6-thinking", want: true},
+		{id: "devin/claude-opus-4-8", want: true},
+		{id: "claude-fable-5-1", want: false},
+		{id: "devin/claude-fable-5-1", want: true},
+		{id: "claude-opus-5", want: false},
+		{id: "devin/claude-opus-5", want: true},
+		{id: "gemini-3.7-flash", want: true},
+		{id: "cpa-ag-gemini-3.6-flash-high", want: true},
+		{id: "devin/gemini-3-8-flash", want: true},
+		{id: "cpa-ag-gemini-3.8-flash", want: false},
+		{id: "cpa-ag-claude-opus-5", want: true},
+		{id: "devin/swe-2", want: false},
+		{id: "devin/gpt-6-astra", want: true},
+		{id: "devin/nemotron-3-ultra", want: true},
+		{id: "cpa-ocgo-muse-spark-1.2-contributor", want: true},
+		{id: "cpa-ocgo-muse-spark-1.3-contributor", want: false},
+		{id: "cpa-ocgo-qwen3.8-max", want: true},
+		{id: "cpa-ocgo-longcat-2.0", want: true},
+		{id: "cpa-ocgo-mimo-v2.5", want: true},
+		{id: "cpa-ocgo-mimo-v2.5-pro", want: true},
+		{id: "cpa-ocgo-minimax-m2.5", want: true},
+		{id: "cpa-ocgo-minimax-m3", want: true},
+		{id: "cpa-ocgo-glm-5.2", want: true},
+		{id: "devin/glm-5-2", want: true},
+		{id: "cpa-ocgo-glm-5.3", want: false},
+		{id: "cpa-or-glm-5.3-flash", want: false},
+		{id: "cpa-fw-glm-5.3-flash", want: false},
+		{id: "cpa-fw-deepseek-v4.1-flash", want: false},
+		{id: "cpa-ocgo-kimi-k2.7-code", want: true},
+		{id: "cpa-ocgo-kimi-k3", want: false},
+		{id: "devin/kimi-k3", want: true},
+		{id: "cpa-ocgo-deepseek-v4-flash", want: true},
+		{id: "devin/deepseek-v4-1-flash", want: false},
+		{id: "cpa-ocgo-gpt-5.6-luna(low)", want: true},
+		{id: "cpa-ocgo-gpt-5.6-luna(fast-high)", want: true},
+		{id: "cpa-ocgo-gpt-5.6-luna", want: true},
+		{id: "cpa-ocgo-gpt-5.6-luna(fast)", want: true},
+		{id: "gpt-6-astra", want: false},
+	}
+	for _, tt := range tests {
+		if got := hideCodexModel(tt.id, modelIDs); got != tt.want {
+			t.Errorf("hideCodexModel(%q) = %t, want %t", tt.id, got, tt.want)
+		}
+	}
+}
+
+func TestCodexClientProviderLabels(t *testing.T) {
+	providers := func(id string) []string {
+		if strings.HasPrefix(id, "gpt-") {
+			return []string{"codex"}
+		}
+		return nil
+	}
+	for _, tt := range []struct {
+		id   string
+		plan string
+		want string
+	}{
+		{id: "cpa-ocgo-gpt-5.6-luna", want: "OpenCode Go"},
+		{id: "cpa-ag-gemini-3.8-flash", want: "Antigravity"},
+		{id: "cpa-fw-glm-5.3-flash", want: "Fireworks"},
+		{id: "devin/swe-2", want: "Devin"},
+		{id: "gpt-5.6-sol", plan: "Pro/Team", want: "Pro/Team"},
+	} {
+		if got := codexClientProviderLabel(tt.id, nil, providers, tt.plan); got != tt.want {
+			t.Errorf("codexClientProviderLabel(%q) = %q, want %q", tt.id, got, tt.want)
+		}
+	}
+}
+
+func TestCleanCodexClientDisplayNameFireworks(t *testing.T) {
+	if got := cleanCodexClientDisplayName("CPA Fireworks GLM 5.3 Flash"); got != "GLM 5.3 Flash" {
+		t.Fatalf("cleanCodexClientDisplayName() = %q, want GLM 5.3 Flash", got)
+	}
+}
+
+func TestCodexClientCatalogPrioritizesSWE2ForPickerVisibility(t *testing.T) {
+	resp := BuildResponse([]map[string]any{
+		{"id": "zeta-custom-model", "display_name": "AAA Custom"},
+		{"id": "devin/swe-2", "display_name": "SWE-2"},
+	}, func(id string) []string {
+		if id == "devin/swe-2" {
+			return []string{"devin"}
+		}
+		return nil
+	}, false)
+	models := resp["models"].([]map[string]any)
+	if len(models) != 2 {
+		t.Fatalf("models = %d, want 2", len(models))
+	}
+	if slug := stringModelValue(models[0], "slug"); slug != "devin/swe-2" {
+		t.Fatalf("first model = %q, want devin/swe-2", slug)
 	}
 }

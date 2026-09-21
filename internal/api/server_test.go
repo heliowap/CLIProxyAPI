@@ -2074,12 +2074,12 @@ func TestModelsWithClientVersionReturnsCodexCatalog(t *testing.T) {
 	clientID := "test-client-version-catalog"
 	modelRegistry.RegisterClient(clientID, "codex", []*registry.ModelInfo{
 		{
-			ID:                  "gpt-5.5",
+			ID:                  "gpt-5.6-sol",
 			Object:              "model",
 			Created:             1776902400,
 			OwnedBy:             "openai",
 			Type:                "openai",
-			DisplayName:         "GPT 5.5",
+			DisplayName:         "GPT 5.6 Sol",
 			Description:         "Frontier model for complex coding, research, and real-world work.",
 			ContextLength:       272000,
 			MaxCompletionTokens: 64000,
@@ -2142,30 +2142,30 @@ func TestModelsWithClientVersionReturnsCodexCatalog(t *testing.T) {
 	var custom map[string]any
 	for _, model := range resp.Models {
 		switch slug, _ := model["slug"].(string); slug {
-		case "gpt-5.5":
+		case "gpt-5.6-sol":
 			gpt55 = model
 		case "custom-codex-model-test":
 			custom = model
 		}
 	}
 	if gpt55 == nil {
-		t.Fatal("expected gpt-5.5 codex catalog entry")
+		t.Fatal("expected gpt-5.6-sol codex catalog entry")
 	}
 	if _, ok := gpt55["minimal_client_version"]; !ok {
 		t.Fatal("expected minimal_client_version in codex catalog")
 	}
 	if got, _ := gpt55["max_tokens"].(float64); got != 64000 {
-		t.Fatalf("gpt-5.5 max_tokens = %v, want 64000", gpt55["max_tokens"])
+		t.Fatalf("gpt-5.6-sol max_tokens = %v, want 64000", gpt55["max_tokens"])
 	}
 	serviceTiers, ok := gpt55["service_tiers"].([]any)
 	if !ok || len(serviceTiers) != 1 {
-		t.Fatalf("expected gpt-5.5 priority service tier, got %#v", gpt55["service_tiers"])
+		t.Fatalf("expected gpt-5.6-sol priority service tier, got %#v", gpt55["service_tiers"])
 	}
 	if custom == nil {
 		t.Fatal("expected custom model codex catalog entry")
 	}
-	if got, _ := custom["display_name"].(string); got != "Custom Codex Model" {
-		t.Fatalf("custom display_name = %q, want Custom Codex Model", got)
+	if got, _ := custom["display_name"].(string); got != "Custom Codex Model (OpenAI OAuth)" {
+		t.Fatalf("custom display_name = %q, want Custom Codex Model (OpenAI OAuth)", got)
 	}
 	wantCustomPriority := codexClientTestMaxTemplatePriority(t) + 100
 	if got := int(codexClientTestPriority(custom["priority"])); got != wantCustomPriority {
@@ -2178,11 +2178,11 @@ func TestModelsWithClientVersionReturnsCodexCatalog(t *testing.T) {
 		t.Fatalf("custom context_window = %v, want 123456", custom["context_window"])
 	}
 	assertCodexSupportedReasoningLevels(t, custom, []string{"none", "minimal", "low", "medium", "high", "xhigh"})
-	if custom["base_instructions"] != gpt55["base_instructions"] {
-		t.Fatal("expected custom model to use gpt-5.5 base_instructions fallback")
+	if instructions, _ := custom["base_instructions"].(string); strings.TrimSpace(instructions) == "" {
+		t.Fatal("expected custom model to use default base_instructions fallback")
 	}
 	if _, ok := custom["available_in_plans"].([]any); !ok {
-		t.Fatalf("expected custom model to use gpt-5.5 available_in_plans fallback, got %#v", custom["available_in_plans"])
+		t.Fatalf("expected custom model to use default available_in_plans fallback, got %#v", custom["available_in_plans"])
 	}
 	if got, _ := custom["prefer_websockets"].(bool); got {
 		t.Fatalf("custom prefer_websockets = %v, want false", custom["prefer_websockets"])
@@ -2298,20 +2298,16 @@ func TestModelsWithClientVersion_DevinDisplayName(t *testing.T) {
 		t.Fatalf("devin/swe-2 display_name = %q, want SWE-2 (Devin)", got)
 	}
 
-	astra, ok := bySlug["devin/gpt-6-astra"]
-	if !ok {
-		t.Fatal("expected devin/gpt-6-astra in models list")
-	}
-	if got, _ := astra["display_name"].(string); got != "GPT-6 Astra (Devin)" {
-		t.Fatalf("devin/gpt-6-astra display_name = %q, want GPT-6 Astra (Devin)", got)
+	if _, exists := bySlug["devin/gpt-6-astra"]; exists {
+		t.Error("devin/gpt-6-astra should not be listed")
 	}
 
 	std, ok := bySlug["standard-openai-model"]
 	if !ok {
 		t.Fatal("expected standard-openai-model in models list")
 	}
-	if got, _ := std["display_name"].(string); got != "Standard Model" {
-		t.Fatalf("standard-openai-model display_name = %q, want Standard Model", got)
+	if got, _ := std["display_name"].(string); got != "Standard Model (OpenAI)" {
+		t.Fatalf("standard-openai-model display_name = %q, want Standard Model (OpenAI)", got)
 	}
 }
 
@@ -3099,8 +3095,8 @@ func TestModelsForCPAClientSerializesWebSearchCapabilities(t *testing.T) {
 	}{
 		{"cpa-web-search-codex", "codex", "cpa-search-codex-model"},
 		{"cpa-web-search-xai", "xai", "cpa-search-xai-model"},
-		{"cpa-web-search-claude", "claude", "cpa-search-claude-model"},
-		{"cpa-web-search-gemini", "gemini", "cpa-no-search-gemini-model"},
+		{"cpa-web-search-claude", "claude", "cpa-search-anthropic-model"},
+		{"cpa-web-search-gemini", "gemini", "cpa-no-search-google-model"},
 		{"cpa-web-search-mixed-codex", "codex", "cpa-mixed-search-model"},
 		{"cpa-web-search-mixed-gemini", "gemini", "cpa-mixed-search-model"},
 		{"cpa-web-search-prefixed", "codex", "team/cpa-prefixed-search-model"},
@@ -3140,10 +3136,10 @@ func TestModelsForCPAClientSerializesWebSearchCapabilities(t *testing.T) {
 		slug, _ := model["slug"].(string)
 		entries[slug] = model
 	}
-	for _, modelID := range []string{"cpa-search-codex-model", "cpa-search-xai-model", "cpa-search-claude-model", "team/cpa-prefixed-search-model"} {
+	for _, modelID := range []string{"cpa-search-codex-model", "cpa-search-xai-model", "cpa-search-anthropic-model", "team/cpa-prefixed-search-model"} {
 		assertSerializedCPAWebSearch(t, entries[modelID], true)
 	}
-	for _, modelID := range []string{"cpa-no-search-gemini-model", "cpa-mixed-search-model"} {
+	for _, modelID := range []string{"cpa-no-search-google-model", "cpa-mixed-search-model"} {
 		assertSerializedCPAWebSearch(t, entries[modelID], false)
 	}
 
@@ -3165,7 +3161,7 @@ func TestHomeModelsRequirePerEntryWebSearchCapabilityAndConservativeRoutes(t *te
 			{"id":"home-duplicate","native_capabilities":{"web_search":false}}
 		],
 		"xai":[{"id":"home-xai","native_capabilities":{"web_search":true}}],
-		"claude":[{"id":"gpt-5.5","native_capabilities":{"web_search":true}}],
+		"claude":[{"id":"gpt-5.6-sol","native_capabilities":{"web_search":true}}],
 		"gemini":[{"id":"home-gemini","native_capabilities":{"web_search":true}}],
 		"custom":[{"id":"home-custom","native_capabilities":{"web_search":true}}]
 	}`))
@@ -3187,10 +3183,10 @@ func TestHomeModelsRequirePerEntryWebSearchCapabilityAndConservativeRoutes(t *te
 		slug, _ := model["slug"].(string)
 		bySlug[slug] = model
 	}
-	for _, modelID := range []string{"home-codex", "home-xai", "gpt-5.5"} {
+	for _, modelID := range []string{"home-codex", "home-xai", "gpt-5.6-sol"} {
 		assertSerializedCPAWebSearch(t, bySlug[modelID], true)
 	}
-	if supportsSearchTool, _ := bySlug["gpt-5.5"]["supports_search_tool"].(bool); !supportsSearchTool {
+	if supportsSearchTool, _ := bySlug["gpt-5.6-sol"]["supports_search_tool"].(bool); !supportsSearchTool {
 		t.Fatal("CPA capability metadata changed legacy Home supports_search_tool")
 	}
 	for _, modelID := range []string{"home-gemini", "home-duplicate"} {
