@@ -58,6 +58,37 @@ func TestCodexClientModelsResponseMultiAgentV2FollowsConfig(t *testing.T) {
 	}
 }
 
+func TestCodexClientModelsResponseStripsCPAPrefixFromDisplayName(t *testing.T) {
+	const modelID = "cpa-ocgo-display-name-test-model"
+	const clientID = "codex-client-display-name-test-client"
+	modelRegistry := registry.GetGlobalRegistry()
+	modelRegistry.RegisterClient(clientID, "openai-compatibility", []*registry.ModelInfo{{
+		ID:              modelID,
+		MetadataModelID: "gpt-5.6-luna",
+		DisplayName:     "CPA OCGo Test Model",
+	}})
+	t.Cleanup(func() {
+		modelRegistry.UnregisterClient(clientID)
+	})
+
+	base := handlers.NewBaseAPIHandlers(&config.SDKConfig{}, nil)
+	response := NewOpenAIAPIHandler(base).codexClientModelsResponse()
+	models, ok := response["models"].([]map[string]any)
+	if !ok {
+		t.Fatalf("models type = %T, want []map[string]any", response["models"])
+	}
+	for _, model := range models {
+		if model["slug"] != modelID {
+			continue
+		}
+		if got := model["display_name"]; got != "Test Model (OpenCode Go)" {
+			t.Fatalf("display_name = %#v, want Test Model (OpenCode Go)", got)
+		}
+		return
+	}
+	t.Fatalf("missing Codex model slug %q", modelID)
+}
+
 func TestCodexClientModelsResponseClientVersionFiltering(t *testing.T) {
 	modelRegistry := registry.GetGlobalRegistry()
 	modelRegistry.RegisterClient("codex-version-filter-sdk-test", "openai-compatibility", []*registry.ModelInfo{
@@ -285,15 +316,13 @@ func TestCodexClientModelsResponse_DevinDisplayName(t *testing.T) {
 		t.Errorf("devin/swe-2 display_name = %q, want SWE-2 (Devin)", got)
 	}
 
-	if astra := bySlug["devin/gpt-6-astra"]; astra == nil {
-		t.Fatal("missing devin/gpt-6-astra entry")
-	} else if got, _ := astra["display_name"].(string); got != "GPT-6 Astra (Devin)" {
-		t.Errorf("devin/gpt-6-astra display_name = %q, want GPT-6 Astra (Devin)", got)
+	if _, exists := bySlug["devin/gpt-6-astra"]; exists {
+		t.Error("devin/gpt-6-astra should not be listed")
 	}
 
 	if std := bySlug["standard-model"]; std == nil {
 		t.Fatal("missing standard-model entry")
-	} else if got, _ := std["display_name"].(string); got != "Standard Model" {
-		t.Errorf("standard-model display_name = %q, want Standard Model", got)
+	} else if got, _ := std["display_name"].(string); got != "Standard Model (OpenAI)" {
+		t.Errorf("standard-model display_name = %q, want Standard Model (OpenAI)", got)
 	}
 }

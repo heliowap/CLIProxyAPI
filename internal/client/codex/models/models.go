@@ -4,6 +4,7 @@ package models
 import (
 	"bytes"
 	"encoding/json"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -30,6 +31,17 @@ var (
 	codexClientModelTemplates         map[string]map[string]any
 	codexClientDefaultTemplate        map[string]any
 	codexClientModelTemplatesErr      error
+)
+
+var (
+	codexGPTVersionPattern      = regexp.MustCompile(`(?i)gpt-(\d+)(?:\.(\d+))?`)
+	codexGeminiPattern          = regexp.MustCompile(`(?i)(?:^|[/_-])gemini-`)
+	codexGemini38Pattern        = regexp.MustCompile(`(?i)(?:^|[/_-])gemini-3[.-]8(?:$|[(_-])`)
+	codexClaudePattern          = regexp.MustCompile(`(?i)(?:^|[/_-])claude-`)
+	codexAllowedClaudePattern   = regexp.MustCompile(`(?i)(?:^|[/_-])claude-(?:fable-5[.-]1|opus-5)(?:$|\()`)
+	codexAllowedGLMPattern      = regexp.MustCompile(`(?i)(?:^|[/_-])glm-5[.-]3(?:-flash)?(?:$|\()`)
+	codexAllowedKimiPattern     = regexp.MustCompile(`(?i)(?:^|[/_-])kimi-k3(?:$|\()`)
+	codexAllowedDeepSeekPattern = regexp.MustCompile(`(?i)(?:^|[/_-])deepseek-v4[.-]1-flash(?:$|\()`)
 )
 
 var codexClientAllowedReasoningLevels = map[string]struct{}{
@@ -65,9 +77,14 @@ func BuildResponseForClient(availableModels []map[string]any, providersForModel 
 
 // BuildResponseForClientWithCPACapabilities builds a client response while
 // allowing Home to supply capability metadata independent of the local registry.
-func BuildResponseForClientWithCPACapabilities(availableModels []map[string]any, providersForModel ProvidersForModelFunc, webSearchCapabilityForModel WebSearchCapabilityForModelFunc, optimizeMultiAgentV2 bool, clientVersion string) map[string]any {
+
+func BuildResponseForClientWithCPACapabilities(availableModels []map[string]any, providersForModel ProvidersForModelFunc, webSearchCapabilityForModel WebSearchCapabilityForModelFunc, optimizeMultiAgentV2 bool, clientVersion string, openAIPlanLabel ...string) map[string]any {
+	planLabel := ""
+	if len(openAIPlanLabel) > 0 {
+		planLabel = strings.TrimSpace(openAIPlanLabel[0])
+	}
 	return map[string]any{
-		"models": buildCodexClientModels(availableModels, providersForModel, webSearchCapabilityForModel, optimizeMultiAgentV2, clientVersion),
+		"models": buildCodexClientModels(availableModels, providersForModel, webSearchCapabilityForModel, optimizeMultiAgentV2, clientVersion, planLabel),
 	}
 }
 
@@ -83,10 +100,17 @@ func MarshalCompact(payload any) ([]byte, error) {
 	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
-func buildCodexClientModels(models []map[string]any, providersForModel ProvidersForModelFunc, webSearchCapabilityForModel WebSearchCapabilityForModelFunc, optimizeMultiAgentV2 bool, clientVersion string) []map[string]any {
+func buildCodexClientModels(models []map[string]any, providersForModel ProvidersForModelFunc, webSearchCapabilityForModel WebSearchCapabilityForModelFunc, optimizeMultiAgentV2 bool, clientVersion, openAIPlanLabel string) []map[string]any {
 	templates, defaultTemplate, err := loadCodexClientModelTemplates()
 	if err != nil || defaultTemplate == nil {
 		return nil
+	}
+
+	modelIDs := make(map[string]struct{}, len(models))
+	for _, model := range models {
+		if id := strings.TrimSpace(stringModelValue(model, "id")); id != "" {
+			modelIDs[id] = struct{}{}
+		}
 	}
 
 	result := make([]map[string]any, 0, len(models))
@@ -97,13 +121,17 @@ func buildCodexClientModels(models []map[string]any, providersForModel Providers
 		}
 
 		metadataID := codexClientMetadataModelID(id)
+		hideFromPicker := isCodexGPTBelow56(id)
+		if hideCodexModel(id, modelIDs) && !hideFromPicker {
+			continue
+		}
 
 		if template, ok := templates[metadataID]; ok {
 			entry := cloneCodexClientModelMap(template)
 			entry["slug"] = id
 			info := registry.LookupModelInfo(id)
 			applyCodexClientModelCapabilities(entry, id, metadataID, info, providersForModel, clientVersion)
-			applyCodexClientDisplayName(entry, model)
+			applyCodexClientDisplayName(entry, model, id, providersForModel, openAIPlanLabel)
 			applyCodexClientDescription(entry, model)
 			applyCodexClientBaseInstructions(entry, model)
 			applyCodexClientMaxContextLengthOverride(entry, model)
@@ -115,6 +143,9 @@ func buildCodexClientModels(models []map[string]any, providersForModel Providers
 			applyCPAWebSearchCapability(entry, id, webSearchCapabilityForModel, clientVersion)
 			sanitizeCodexClientReasoningMetadata(entry, clientVersion)
 			applyCodexClientVisibilityOverride(entry, id)
+			if hideFromPicker {
+				entry["visibility"] = "hide"
+			}
 			if optimizeMultiAgentV2 {
 				entry["multi_agent_version"] = "v2"
 			}
@@ -125,11 +156,15 @@ func buildCodexClientModels(models []map[string]any, providersForModel Providers
 
 		entry := cloneCodexClientModelMap(defaultTemplate)
 		applyCodexClientModelMetadata(entry, id, model, optimizeMultiAgentV2, clientVersion)
+		applyCodexClientDisplayName(entry, model, id, providersForModel, openAIPlanLabel)
 		applyCodexClientMaxTokens(entry, model)
 		applyCodexClientProviderCapabilities(entry, id, false, providersForModel)
 		applyCPAWebSearchCapability(entry, id, webSearchCapabilityForModel, clientVersion)
 		sanitizeCodexClientReasoningMetadata(entry, clientVersion)
 		applyCodexClientVisibilityOverride(entry, id)
+		if hideFromPicker {
+			entry["visibility"] = "hide"
+		}
 		applyCodexClientDevinDisplayName(entry, id, model, providersForModel)
 		result = append(result, entry)
 	}
@@ -184,6 +219,11 @@ func applyCodexClientNonTemplatePriorities(result []map[string]any, templates ma
 	}
 
 	sort.SliceStable(pending, func(i, j int) bool {
+		leftPinned := pending[i].slug == "devin/swe-2"
+		rightPinned := pending[j].slug == "devin/swe-2"
+		if leftPinned != rightPinned {
+			return leftPinned
+		}
 		left := strings.ToLower(pending[i].displayName)
 		right := strings.ToLower(pending[j].displayName)
 		if left == right {
@@ -252,10 +292,221 @@ func codexClientMetadataModelID(id string) string {
 	return id
 }
 
-func applyCodexClientDisplayName(entry map[string]any, model map[string]any) {
-	if displayName := stringModelValue(model, "display_name"); displayName != "" {
-		entry["display_name"] = displayName
+func applyCodexClientDisplayName(entry map[string]any, model map[string]any, id string, providersForModel ProvidersForModelFunc, openAIPlanLabel string) {
+	displayName := stringModelValue(model, "display_name")
+	if displayName == "" {
+		displayName = stringModelValue(entry, "display_name")
 	}
+	displayName = cleanCodexClientDisplayName(displayName)
+	if displayName == "" {
+		displayName = id
+	}
+	provider := codexClientProviderLabel(id, model, providersForModel, openAIPlanLabel)
+	if provider != "" && !strings.HasSuffix(strings.ToLower(displayName), "("+strings.ToLower(provider)+")") {
+		displayName += " (" + provider + ")"
+	}
+	entry["display_name"] = displayName
+}
+
+func cleanCodexClientDisplayName(displayName string) string {
+	displayName = strings.TrimSpace(displayName)
+	for _, prefix := range []string{"CPA OCGo ", "CPA OpenCode Go ", "CPA OpenRouter ", "CPA Baseten ", "CPA Fireworks ", "CPA Antigravity ", "CPA "} {
+		if strings.HasPrefix(displayName, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(displayName, prefix))
+		}
+	}
+	return displayName
+}
+
+func codexClientProviderLabel(id string, model map[string]any, providersForModel ProvidersForModelFunc, openAIPlanLabel string) string {
+	idLower := strings.ToLower(strings.TrimSpace(id))
+	if isCodexClientDevinModel(id, model, nil, providersForModel) {
+		return "Devin"
+	}
+	switch {
+	case strings.HasPrefix(idLower, "cpa-ocgo-"):
+		return "OpenCode Go"
+	case strings.HasPrefix(idLower, "cpa-or-"):
+		return "OpenRouter"
+	case strings.HasPrefix(idLower, "cpa-bt-"):
+		return "Baseten"
+	case strings.HasPrefix(idLower, "cpa-fw-"):
+		return "Fireworks"
+	case strings.HasPrefix(idLower, "cpa-ag-"):
+		return "Antigravity"
+	case strings.HasPrefix(idLower, "devin/"):
+		return "Devin"
+	}
+
+	var providers []string
+	if providersForModel != nil {
+		providers = providersForModel(id)
+		if len(providers) == 0 && strings.Contains(id, "/") {
+			providers = providersForModel(strings.TrimSpace(id[strings.Index(id, "/")+1:]))
+		}
+	}
+	for _, rawProvider := range providers {
+		provider := strings.ToLower(strings.TrimSpace(rawProvider))
+		switch provider {
+		case "codex":
+			if openAIPlanLabel != "" {
+				return openAIPlanLabel
+			}
+			return "OpenAI OAuth"
+		case "antigravity":
+			return "Antigravity"
+		case "devin":
+			return "Devin"
+		case "gemini":
+			return "Gemini API"
+		case "claude":
+			return "Claude"
+		case "xai":
+			return "xAI"
+		case "openai":
+			if openAIPlanLabel != "" {
+				return openAIPlanLabel
+			}
+			return "OpenAI"
+		case "openai-compatibility":
+			return "OpenAI-compatible"
+		}
+		if provider != "" {
+			return titleCodexProvider(provider)
+		}
+	}
+
+	ownedBy := strings.ToLower(strings.TrimSpace(stringModelValue(model, "owned_by")))
+	if ownedBy == "openai" && codexGPTVersionPattern.MatchString(id) {
+		if openAIPlanLabel != "" {
+			return openAIPlanLabel
+		}
+		return "OpenAI OAuth"
+	}
+	return ""
+}
+
+func titleCodexProvider(provider string) string {
+	parts := strings.Fields(strings.NewReplacer("-", " ", "_", " ").Replace(provider))
+	for i, part := range parts {
+		if len(part) > 0 {
+			parts[i] = strings.ToUpper(part[:1]) + part[1:]
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func hideCodexModel(id string, modelIDs map[string]struct{}) bool {
+	idLower := strings.ToLower(strings.TrimSpace(id))
+	if isCodexGPTBelow56(id) {
+		return true
+	}
+	if codexGeminiPattern.MatchString(idLower) && !codexGemini38Pattern.MatchString(idLower) {
+		return true
+	}
+	if codexClaudePattern.MatchString(idLower) && !codexAllowedClaudePattern.MatchString(idLower) {
+		return true
+	}
+	if strings.HasPrefix(idLower, "cpa-ag-") && !codexGemini38Pattern.MatchString(idLower) {
+		return true
+	}
+	if strings.HasPrefix(idLower, "devin/") && idLower != "devin/swe-2" && idLower != "devin/deepseek-v4-1-flash" {
+		return true
+	}
+	if strings.Contains(idLower, "nemotron") || strings.Contains(idLower, "muse-spark-1.2") || strings.Contains(idLower, "qwen") {
+		return true
+	}
+	switch idLower {
+	case "cpa-ocgo-longcat-2.0", "cpa-ocgo-mimo-v2.5", "cpa-ocgo-mimo-v2.5-pro", "cpa-ocgo-minimax-m2.5", "cpa-ocgo-minimax-m3":
+		return true
+	}
+	if strings.Contains(idLower, "glm-") && !codexAllowedGLMPattern.MatchString(idLower) {
+		return true
+	}
+	if strings.Contains(idLower, "kimi-") && !codexAllowedKimiPattern.MatchString(idLower) {
+		return true
+	}
+	if strings.HasPrefix(idLower, "cpa-ocgo-gpt-5.6-luna") {
+		return true
+	}
+	if strings.Contains(idLower, "deepseek-") && !codexAllowedDeepSeekPattern.MatchString(idLower) {
+		return true
+	}
+	if strings.HasPrefix(idLower, "cpa-codex-") {
+		base := strings.TrimPrefix(id, "cpa-codex-")
+		if _, exists := modelIDs[base]; exists {
+			return true
+		}
+		if open := strings.LastIndex(base, "("); open > 0 && strings.HasSuffix(base, ")") {
+			base = strings.TrimSpace(base[:open])
+			if _, exists := modelIDs[base]; exists {
+				return true
+			}
+		}
+	}
+	if strings.HasPrefix(idLower, "cpa-claude-") {
+		base := strings.TrimPrefix(idLower, "cpa-")
+		if _, exists := modelIDs[base]; exists {
+			return true
+		}
+		normalizedBase := strings.ReplaceAll(base, ".", "-")
+		for modelID := range modelIDs {
+			if strings.ReplaceAll(strings.ToLower(modelID), ".", "-") == normalizedBase {
+				return true
+			}
+		}
+	}
+	if strings.HasPrefix(idLower, "gemini-") {
+		if _, exists := modelIDs["cpa-ag-"+id]; exists {
+			return true
+		}
+	}
+	if strings.HasPrefix(idLower, "cpa-ag-gemini-") && strings.HasSuffix(idLower, "-high") {
+		if _, exists := modelIDs[strings.TrimSuffix(id, "-high")]; exists {
+			return true
+		}
+	}
+
+	open := strings.LastIndex(id, "(")
+	if open < 1 || !strings.HasSuffix(id, ")") {
+		return false
+	}
+	base := strings.TrimSpace(id[:open])
+	suffix := strings.ToLower(strings.TrimSpace(id[open+1 : len(id)-1]))
+	if _, hasBase := modelIDs[base]; hasBase && isReasoningEffortAlias(suffix) {
+		return true
+	}
+	if strings.HasPrefix(suffix, "fast-") {
+		if _, hasFastBase := modelIDs[base+"(fast)"]; hasFastBase {
+			return true
+		}
+	}
+	return false
+}
+
+func isReasoningEffortAlias(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra":
+		return true
+	default:
+		return false
+	}
+}
+
+func isCodexGPTBelow56(modelID string) bool {
+	match := codexGPTVersionPattern.FindStringSubmatch(modelID)
+	if len(match) < 2 {
+		return false
+	}
+	major, errMajor := strconv.Atoi(match[1])
+	if errMajor != nil {
+		return false
+	}
+	minor := 0
+	if len(match) > 2 && match[2] != "" {
+		minor, _ = strconv.Atoi(match[2])
+	}
+	return major < 5 || major == 5 && minor < 6
 }
 
 func applyCodexClientDevinDisplayName(entry map[string]any, id string, model map[string]any, providersForModel ProvidersForModelFunc) {

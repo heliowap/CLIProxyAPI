@@ -1,8 +1,13 @@
 package openai
 
 import (
+	"sort"
+	"strings"
+
+	codexauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
 	codexmodels "github.com/router-for-me/CLIProxyAPI/v8/internal/client/codex/models"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
+	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 )
 
 func (h *OpenAIAPIHandler) codexClientModelsResponse(clientVersion ...string) map[string]any {
@@ -11,7 +16,63 @@ func (h *OpenAIAPIHandler) codexClientModelsResponse(clientVersion ...string) ma
 		version = clientVersion[0]
 	}
 	optimizeMultiAgentV2 := h != nil && h.Cfg != nil && h.Cfg.CodexOptimizeMultiAgentV2
-	return codexmodels.BuildResponseForClient(h.Models(), registry.GetGlobalRegistry().GetModelProviders, optimizeMultiAgentV2, version)
+	return codexmodels.BuildResponseForClientWithCPACapabilities(
+		h.Models(),
+		registry.GetGlobalRegistry().GetModelProviders,
+		registry.GetGlobalRegistry().GetResponsesWebSearchCapability,
+		optimizeMultiAgentV2,
+		version,
+		codexOAuthPlanLabel(h),
+	)
+}
+
+func codexOAuthPlanLabel(h *OpenAIAPIHandler) string {
+	if h == nil || h.AuthManager == nil {
+		return ""
+	}
+	plans := make(map[string]struct{})
+	for _, auth := range h.AuthManager.List() {
+		if auth == nil || auth.Disabled {
+			continue
+		}
+		plan := codexOAuthAuthPlan(auth)
+		isCodexOAuth := strings.Contains(strings.ToLower(strings.TrimSpace(auth.Provider)), "codex") || strings.Contains(strings.ToLower(auth.ID+" "+auth.FileName), "codex")
+		if !isCodexOAuth || plan == "" {
+			continue
+		}
+		plans[strings.ToUpper(plan[:1])+plan[1:]] = struct{}{}
+	}
+	if len(plans) == 0 {
+		return ""
+	}
+	labels := make([]string, 0, len(plans))
+	for plan := range plans {
+		labels = append(labels, plan)
+	}
+	sort.Strings(labels)
+	return strings.Join(labels, "/")
+}
+
+func codexOAuthAuthPlan(auth *coreauth.Auth) string {
+	if auth == nil {
+		return ""
+	}
+	if auth.Attributes != nil {
+		if plan := strings.TrimSpace(auth.Attributes["plan_type"]); plan != "" {
+			return strings.ToLower(plan)
+		}
+	}
+	if auth.Metadata != nil {
+		if plan, ok := auth.Metadata["plan_type"].(string); ok && strings.TrimSpace(plan) != "" {
+			return strings.ToLower(strings.TrimSpace(plan))
+		}
+		if token, ok := auth.Metadata["id_token"].(string); ok && token != "" {
+			if claims, err := codexauth.ParseJWTToken(token); err == nil && claims != nil {
+				return strings.ToLower(strings.TrimSpace(claims.CodexAuthInfo.ChatgptPlanType))
+			}
+		}
+	}
+	return ""
 }
 
 // CodexClientModelsResponse builds a Codex client model response.

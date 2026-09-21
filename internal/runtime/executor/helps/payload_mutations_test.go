@@ -93,6 +93,27 @@ func TestApplyPayloadConfigReusesCanonicalOverrides(t *testing.T) {
 	}
 }
 
+func TestCodexEffortFallbackPreservesCallerSelection(t *testing.T) {
+	cfg := &config.Config{Payload: config.PayloadConfig{
+		Default: []config.PayloadRule{{
+			Models: []config.PayloadModelRule{{Name: "cpa-ocgo-gpt-5.6-luna", Protocol: "codex"}},
+			Params: map[string]any{"reasoning.effort": "max"},
+		}},
+	}}
+	const model = "cpa-ocgo-gpt-5.6-luna"
+	input := []byte(`{"model":"gpt-5.6-luna","reasoning":{"effort":"high"},"input":[]}`)
+	output := ApplyPayloadConfigWithRequest(cfg, "gpt-5.6-luna", "codex", "openai-response", "", input, input, model, "/v1/responses", nil)
+	if got := gjson.GetBytes(output, "reasoning.effort").String(); got != "high" {
+		t.Fatalf("reasoning.effort = %q, want caller selection high", got)
+	}
+
+	withoutEffort := []byte(`{"model":"gpt-5.6-luna","input":[]}`)
+	output = ApplyPayloadConfigWithRequest(cfg, "gpt-5.6-luna", "codex", "openai-response", "", withoutEffort, withoutEffort, model, "/v1/responses", nil)
+	if got := gjson.GetBytes(output, "reasoning.effort").String(); got != "max" {
+		t.Fatalf("default reasoning.effort = %q, want max", got)
+	}
+}
+
 func TestApplyPayloadConfigWithRequestTrackedReportsContextManagementTouches(t *testing.T) {
 	const automatic = `{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]}`
 	modelRules := []config.PayloadModelRule{{Name: "claude-opus-5", Protocol: "claude"}}

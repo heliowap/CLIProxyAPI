@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"math/big"
+	"strconv"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -67,6 +68,122 @@ func normalizeCodexToolList(tools gjson.Result) ([]byte, bool) {
 		return nil, false
 	}
 	return append(out, tools.Raw[offset:]...), true
+}
+
+// NormalizeCodexCompatToolSchemas removes tool schema fields rejected by
+// compatibility backends. It resolves recursive local references while leaving
+// acyclic schemas untouched, and drops search_content_types from web_search
+// tools because the upstream only accepts that field on web_search_preview.
+func NormalizeCodexCompatToolSchemas(body []byte) []byte {
+	tools := gjson.GetBytes(body, "tools")
+	if !tools.IsArray() {
+		return body
+	}
+	for i, tool := range tools.Array() {
+		updated, changed := normalizeCodexCompatTool(tool)
+		if changed {
+			if next, err := sjson.SetRawBytes(body, "tools."+strconv.Itoa(i), updated); err == nil {
+				body = next
+			}
+		}
+	}
+	return body
+}
+
+func normalizeCodexCompatTool(tool gjson.Result) ([]byte, bool) {
+	if tool.Get("type").String() == "namespace" {
+		raw := []byte(tool.Raw)
+		changed := false
+		for i, nested := range tool.Get("tools").Array() {
+			updated, nestedChanged := normalizeCodexCompatTool(nested)
+			if nestedChanged {
+				if next, err := sjson.SetRawBytes(raw, "tools."+strconv.Itoa(i), updated); err == nil {
+					raw = next
+					changed = true
+				}
+			}
+		}
+		return raw, changed
+	}
+	if tool.Get("type").String() == "web_search" && tool.Get("search_content_types").Exists() {
+		updated, err := sjson.DeleteBytes([]byte(tool.Raw), "search_content_types")
+		return updated, err == nil
+	}
+	if tool.Get("type").String() != "function" {
+		return nil, false
+	}
+	params := tool.Get("parameters")
+	if !params.IsObject() || !strings.Contains(params.Raw, `"$ref"`) {
+		return nil, false
+	}
+	var schema any
+	if err := json.Unmarshal([]byte(params.Raw), &schema); err != nil || !hasRecursiveLocalRef(schema, schema, make(map[string]bool)) {
+		return nil, false
+	}
+	resolved := util.InlineLocalRefs(params.Raw)
+	if resolved == params.Raw {
+		return nil, false
+	}
+	updated, err := sjson.SetRawBytes([]byte(tool.Raw), "parameters", []byte(resolved))
+	if err != nil {
+		return nil, false
+	}
+	log.Debugf("codex: replaced recursive local references for compatibility tool %s", tool.Get("name").String())
+	return updated, true
+}
+
+func hasRecursiveLocalRef(root, value any, active map[string]bool) bool {
+	switch node := value.(type) {
+	case map[string]any:
+		if ref, ok := node["$ref"].(string); ok && strings.HasPrefix(ref, "#/") {
+			if active[ref] {
+				return true
+			}
+			if target, found := codexLocalRefTarget(root, ref); found {
+				active[ref] = true
+				if hasRecursiveLocalRef(root, target, active) {
+					return true
+				}
+				delete(active, ref)
+			}
+		}
+		for _, child := range node {
+			if hasRecursiveLocalRef(root, child, active) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range node {
+			if hasRecursiveLocalRef(root, child, active) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func codexLocalRefTarget(root any, ref string) (any, bool) {
+	value := root
+	for _, segment := range strings.Split(strings.TrimPrefix(ref, "#/"), "/") {
+		key := strings.ReplaceAll(strings.ReplaceAll(segment, "~1", "/"), "~0", "~")
+		switch node := value.(type) {
+		case map[string]any:
+			var ok bool
+			value, ok = node[key]
+			if !ok {
+				return nil, false
+			}
+		case []any:
+			index, err := strconv.Atoi(key)
+			if err != nil || index < 0 || index >= len(node) {
+				return nil, false
+			}
+			value = node[index]
+		default:
+			return nil, false
+		}
+	}
+	return value, true
 }
 
 func normalizeCodexTool(tool gjson.Result) ([]byte, bool) {
