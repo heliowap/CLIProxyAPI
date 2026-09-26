@@ -85,7 +85,7 @@ func splitCodexSuffixTokens(rawSuffix string) []string {
 
 func supportsCodexFastMode(baseModel string) bool {
 	switch strings.ToLower(strings.TrimSpace(baseModel)) {
-	case "gpt-5.4", "gpt-5.5", "gpt-6-astra":
+	case "gpt-5.4", "gpt-5.5", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna":
 		return true
 	default:
 		return strings.HasPrefix(strings.ToLower(strings.TrimSpace(baseModel)), "gpt-5.6")

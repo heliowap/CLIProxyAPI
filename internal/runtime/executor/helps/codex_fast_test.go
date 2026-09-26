@@ -20,6 +20,10 @@ func TestApplyCodexFastServiceTierSetsPriorityForSupportedFastSuffix(t *testing.
 		{name: "gpt-5.6-terra", model: "gpt-5.6-terra(fast)"},
 		{name: "gpt-5.6-luna", model: "gpt-5.6-luna(fast)"},
 		{name: "gpt-6-astra", model: "gpt-6-astra(fast)"},
+		{name: "gpt-6-sol", model: "gpt-6-sol(fast)"},
+		{name: "gpt-6-luna", model: "gpt-6-luna(fast)"},
+		{name: "gpt-6-sol fast plus high", model: "gpt-6-sol(fast-high)"},
+		{name: "gpt-6-luna fast plus max", model: "gpt-6-luna(fast-max)"},
 		{name: "gpt-6-astra case-insensitive suffix", model: "gpt-6-astra(FAST)"},
 		{name: "fast plus high", model: "gpt-5.6-sol(fast-high)"},
 		{name: "high plus fast", model: "gpt-5.6-sol(high-fast)"},
@@ -58,6 +62,7 @@ func TestApplyCodexFastServiceTierLeavesUnsupportedOrNonFastModelsUnchanged(t *t
 		{name: "spark does not support Fast", model: "gpt-5.3-codex-spark(fast)"},
 		{name: "gpt-6-astra without suffix", model: "gpt-6-astra"},
 		{name: "gpt-6-astra effort only is not ChatGPT Fast", model: "gpt-6-astra(xhigh)"},
+		{name: "gpt-6-sol effort only is not ChatGPT Fast", model: "gpt-6-sol(high)"},
 	}
 
 	for _, tt := range tests {

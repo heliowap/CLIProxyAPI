@@ -7,6 +7,29 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func TestConvertOpenAIRequestToCodexPreservesPriorityServiceTier(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "fast variant", body: `{"model":"gpt-6-sol","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"high","service_tier":"priority"}`, want: "priority"},
+		{name: "normal variant", body: `{"model":"gpt-6-sol","messages":[{"role":"user","content":"hi"}]}`},
+		{name: "non-string tier", body: `{"model":"gpt-6-sol","messages":[{"role":"user","content":"hi"}],"service_tier":1}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := ConvertOpenAIRequestToCodex("gpt-6-sol", []byte(tt.body), true)
+			if got := gjson.GetBytes(out, "service_tier").String(); got != tt.want {
+				t.Fatalf("service_tier = %q, want %q; payload=%s", got, tt.want, out)
+			}
+			if tt.want != "" && gjson.GetBytes(out, "reasoning.effort").String() != "high" {
+				t.Fatalf("reasoning.effort lost when selecting Fast: %s", out)
+			}
+		})
+	}
+}
+
 // Basic tool-call: system + user + assistant(tool_calls, no content) + tool result.
 // Expects developer msg + user msg + function_call + function_call_output.
 // No empty assistant message should appear between user and function_call.

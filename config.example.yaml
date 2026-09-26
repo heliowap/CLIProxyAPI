@@ -235,7 +235,8 @@ requests:
   #   override: # Override rules always set parameters, overwriting any existing values.
   #     # Codex Fast-capable models can also use a suffix such as (fast) or
   #     # (fast-high). Fast maps to service_tier=priority; an optional second
-  #     # token selects the reasoning effort independently.
+  #     # token selects the reasoning effort independently. GPT-6 Astra/Sol/Luna
+  #     # also advertise Fast mode in the Codex client catalog when available.
   #     - models:
   #         - name: "gpt-5.4-fast"
   #           protocol: "codex"
