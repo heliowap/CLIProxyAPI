@@ -1584,6 +1584,11 @@ func TestCodexClientCatalogHidesOlderGPTAndReasoningAliases(t *testing.T) {
 		{id: "cpa-codex-gpt-5.5", want: true},
 		{id: "cpa-claude-fable-5", want: true},
 		{id: "claude-sonnet-5", want: true},
+		{id: "claude-sonnet-5-5", want: false},
+		{id: "cpa-claude-sonnet-5.5", want: false},
+		{id: "claude-sonnet-5-5(high)", want: false},
+		{id: "claude-sonnet-5-50", want: true},
+		{id: "devin/claude-sonnet-5-5", want: true},
 		{id: "cpa-ag-claude-opus-4-6-thinking", want: true},
 		{id: "devin/claude-opus-4-8", want: true},
 		{id: "claude-fable-5-1", want: false},
@@ -1623,10 +1628,44 @@ func TestCodexClientCatalogHidesOlderGPTAndReasoningAliases(t *testing.T) {
 		{id: "cpa-ocgo-gpt-5.6-luna", want: true},
 		{id: "cpa-ocgo-gpt-5.6-luna(fast)", want: true},
 		{id: "gpt-6-astra", want: false},
+		{id: "gpt-6.1-sol", want: false},
 	}
 	for _, tt := range tests {
 		if got := hideCodexModel(tt.id, modelIDs); got != tt.want {
 			t.Errorf("hideCodexModel(%q) = %t, want %t", tt.id, got, tt.want)
+		}
+	}
+}
+
+func TestCodexClientCatalogIncludesLatestGPTAndClaude(t *testing.T) {
+	response := BuildResponseForClient([]map[string]any{
+		{"id": "claude-sonnet-5-5"},
+		{"id": "gpt-6.1-sol"},
+	}, func(id string) []string {
+		if id == "gpt-6.1-sol" {
+			return []string{"codex"}
+		}
+		return []string{"claude"}
+	}, false, "0.154.0")
+	entries := response["models"].([]map[string]any)
+	if len(entries) != 2 || stringModelValue(entries[0], "slug") != "gpt-6.1-sol" {
+		t.Fatalf("expected GPT-6.1 Sol first in the two-model catalog")
+	}
+	for _, entry := range entries {
+		id := stringModelValue(entry, "slug")
+		if stringModelValue(entry, "visibility") != "list" {
+			t.Errorf("%s is hidden", id)
+		}
+		tiers, ok := entry["service_tiers"].([]any)
+		if !ok {
+			t.Fatalf("%s service_tiers has type %T", id, entry["service_tiers"])
+		}
+		if id == "gpt-6.1-sol" {
+			if len(tiers) != 1 || stringModelValue(tiers[0].(map[string]any), "id") != "priority" {
+				t.Errorf("GPT-6.1 Sol does not advertise Fast mode")
+			}
+		} else if len(tiers) != 0 {
+			t.Errorf("%s advertises Codex service tiers", id)
 		}
 	}
 }
@@ -1702,6 +1741,7 @@ func TestMarshalCompactJSONIsSingleLine(t *testing.T) {
 
 func TestCodexClientModelsResponse_NonTemplateCatalogStaysWithinOneMiB(t *testing.T) {
 	ids := []string{
+		"gpt-6.1-sol",
 		"gpt-6-astra",
 		"gpt-6-sol",
 		"gpt-6-luna",

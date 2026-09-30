@@ -38,7 +38,7 @@ var (
 	codexGeminiPattern          = regexp.MustCompile(`(?i)(?:^|[/_-])gemini-`)
 	codexGemini38Pattern        = regexp.MustCompile(`(?i)(?:^|[/_-])gemini-3[.-]8(?:$|[(_-])`)
 	codexClaudePattern          = regexp.MustCompile(`(?i)(?:^|[/_-])claude-`)
-	codexAllowedClaudePattern   = regexp.MustCompile(`(?i)(?:^|[/_-])claude-(?:fable-5[.-]1|opus-5[.-]5)(?:$|\()`)
+	codexAllowedClaudePattern   = regexp.MustCompile(`(?i)(?:^|[/_-])claude-(?:fable-5[.-]1|opus-5[.-]5|sonnet-5[.-]5)(?:$|\()`)
 	codexAllowedGLMPattern      = regexp.MustCompile(`(?i)(?:^|[/_-])glm-5[.-]3(?:-flash)?(?:$|\()`)
 	codexAllowedKimiPattern     = regexp.MustCompile(`(?i)(?:^|[/_-])kimi-k3(?:$|\()`)
 	codexAllowedDeepSeekPattern = regexp.MustCompile(`(?i)(?:^|[/_-])deepseek-v4[.-]1-flash(?:$|\()`)
