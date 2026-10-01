@@ -776,7 +776,7 @@ func (e *CodexWebsocketsExecutor) prepareCodexWebsocketStream(ctx context.Contex
 
 	requestedModel := helps.PayloadRequestedModel(opts, req.Model)
 	requestPath := helps.PayloadRequestPath(opts)
-	body = helps.ApplyPayloadConfigWithRequest(e.cfg, baseModel, to.String(), from.String(), "", body, originalTranslated, requestedModel, requestPath, opts.Headers)
+	body = helps.ApplyPayloadConfigWithRequestForExecutor(e.cfg, "codex-websockets", baseModel, to.String(), from.String(), "", body, originalTranslated, requestedModel, requestPath, opts.Headers)
 	body = helps.SetStringIfDifferent(body, "model", baseModel)
 	body = helps.ApplyCodexFastServiceTier(body, req.Model)
 	body = normalizeCodexInstructions(body, preserveNativeOutput)
