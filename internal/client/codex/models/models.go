@@ -77,14 +77,19 @@ func BuildResponseForClient(availableModels []map[string]any, providersForModel 
 
 // BuildResponseForClientWithCPACapabilities builds a client response while
 // allowing Home to supply capability metadata independent of the local registry.
-
 func BuildResponseForClientWithCPACapabilities(availableModels []map[string]any, providersForModel ProvidersForModelFunc, webSearchCapabilityForModel WebSearchCapabilityForModelFunc, optimizeMultiAgentV2 bool, clientVersion string, openAIPlanLabel ...string) map[string]any {
+	return BuildResponseForClientWithToolCapabilities(availableModels, providersForModel, webSearchCapabilityForModel, nil, optimizeMultiAgentV2, clientVersion, openAIPlanLabel...)
+}
+
+// BuildResponseForClientWithToolCapabilities adds executor-backed tool support
+// independently of template metadata and legacy provider restrictions.
+func BuildResponseForClientWithToolCapabilities(availableModels []map[string]any, providersForModel ProvidersForModelFunc, webSearchCapabilityForModel WebSearchCapabilityForModelFunc, applyPatchCapabilityForModel ApplyPatchCapabilityForModelFunc, optimizeMultiAgentV2 bool, clientVersion string, openAIPlanLabel ...string) map[string]any {
 	planLabel := ""
 	if len(openAIPlanLabel) > 0 {
 		planLabel = strings.TrimSpace(openAIPlanLabel[0])
 	}
 	return map[string]any{
-		"models": buildCodexClientModels(availableModels, providersForModel, webSearchCapabilityForModel, optimizeMultiAgentV2, clientVersion, planLabel),
+		"models": buildCodexClientModelsWithToolCapabilities(availableModels, providersForModel, webSearchCapabilityForModel, applyPatchCapabilityForModel, optimizeMultiAgentV2, clientVersion, planLabel),
 	}
 }
 
@@ -101,8 +106,12 @@ func MarshalCompact(payload any) ([]byte, error) {
 }
 
 func buildCodexClientModels(models []map[string]any, providersForModel ProvidersForModelFunc, webSearchCapabilityForModel WebSearchCapabilityForModelFunc, optimizeMultiAgentV2 bool, clientVersion, openAIPlanLabel string) []map[string]any {
-	templates, defaultTemplate, err := loadCodexClientModelTemplates()
-	if err != nil || defaultTemplate == nil {
+	return buildCodexClientModelsWithToolCapabilities(models, providersForModel, webSearchCapabilityForModel, nil, optimizeMultiAgentV2, clientVersion, openAIPlanLabel)
+}
+
+func buildCodexClientModelsWithToolCapabilities(models []map[string]any, providersForModel ProvidersForModelFunc, webSearchCapabilityForModel WebSearchCapabilityForModelFunc, applyPatchCapabilityForModel ApplyPatchCapabilityForModelFunc, optimizeMultiAgentV2 bool, clientVersion, openAIPlanLabel string) []map[string]any {
+	templates, defaultTemplate, errLoadCodexClientModelTemplates := loadCodexClientModelTemplates()
+	if errLoadCodexClientModelTemplates != nil || defaultTemplate == nil {
 		return nil
 	}
 
@@ -150,6 +159,7 @@ func buildCodexClientModels(models []map[string]any, providersForModel Providers
 				entry["multi_agent_version"] = "v2"
 			}
 			applyCodexClientDevinDisplayName(entry, id, model, providersForModel)
+			applyCodexClientApplyPatchCapability(entry, id, applyPatchCapabilityForModel)
 			result = append(result, entry)
 			continue
 		}
@@ -166,6 +176,7 @@ func buildCodexClientModels(models []map[string]any, providersForModel Providers
 			entry["visibility"] = "hide"
 		}
 		applyCodexClientDevinDisplayName(entry, id, model, providersForModel)
+		applyCodexClientApplyPatchCapability(entry, id, applyPatchCapabilityForModel)
 		result = append(result, entry)
 	}
 
@@ -964,13 +975,21 @@ func codexClientThinkingSupport(model map[string]any) *registry.ThinkingSupport 
 }
 
 func applyCodexClientVisibilityOverride(entry map[string]any, id string) {
+	if isCodexClientImageOrVideoModel(id) {
+		entry["visibility"] = "hide"
+	}
+}
+
+func isCodexClientImageOrVideoModel(id string) bool {
 	target := strings.TrimSpace(id)
 	if idx := strings.Index(target, "/"); idx != -1 {
 		target = strings.TrimSpace(target[idx+1:])
 	}
 	switch target {
 	case "grok-imagine-image-quality", "gpt-image-1.5", "gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5", "grok-imagine-image", "grok-imagine-image-2.0", "grok-imagine-video", "grok-imagine-video-1.5", "grok-imagine-video-1.5-preview":
-		entry["visibility"] = "hide"
+		return true
+	default:
+		return false
 	}
 }
 

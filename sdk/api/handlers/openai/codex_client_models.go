@@ -15,11 +15,17 @@ func (h *OpenAIAPIHandler) codexClientModelsResponse(clientVersion ...string) ma
 	if len(clientVersion) > 0 {
 		version = clientVersion[0]
 	}
-	optimizeMultiAgentV2 := h != nil && h.Cfg != nil && h.Cfg.CodexOptimizeMultiAgentV2
-	return codexmodels.BuildResponseForClientWithCPACapabilities(
+	optimizeMultiAgentV2 := h != nil && h.Cfg != nil && h.Cfg.Client.Codex.OptimizeMultiAgentV2
+	var applyPatchCapabilityForModel codexmodels.ApplyPatchCapabilityForModelFunc
+	if h != nil && h.Cfg != nil && h.Cfg.Client.Codex.EnableApplyPatch {
+		applyPatchCapabilityForModel = h.SupportsApplyPatchModel
+	}
+	modelRegistry := registry.GetGlobalRegistry()
+	return codexmodels.BuildResponseForClientWithToolCapabilities(
 		h.Models(),
-		registry.GetGlobalRegistry().GetModelProviders,
-		registry.GetGlobalRegistry().GetResponsesWebSearchCapability,
+		modelRegistry.GetModelProviders,
+		modelRegistry.GetResponsesWebSearchCapability,
+		applyPatchCapabilityForModel,
 		optimizeMultiAgentV2,
 		version,
 		codexOAuthPlanLabel(h),
