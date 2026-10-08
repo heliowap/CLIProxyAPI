@@ -3592,6 +3592,97 @@ func TestModelsWithClientVersionHomeApplyPatchRouting(t *testing.T) {
 	}
 }
 
+func TestModelsWithClientVersionHomeSearchToolRouting(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		toolSearch bool
+		want       map[string]bool
+	}{
+		{
+			// Home routing evidence decides search support exactly as local routes do:
+			// pure Codex template routes, or pure Claude routes whose every credential
+			// supports native tool search. A Home without tool_search fails closed.
+			name:       "tool search on",
+			toolSearch: true,
+			want: map[string]bool{
+				"home-claude-sonnet-5-5":        true,
+				"gpt-5.5":                       true,
+				"mixed/claude-sonnet-5-5":       false,
+				"third-party/claude-sonnet-5-5": false,
+				"old-home/claude-sonnet-5-5":    false,
+				"team/gpt-5.5":                  false,
+			},
+		},
+		{
+			// Off keeps the catalog that predates tool_search: Home routes are not
+			// consulted, so template models keep their search flag and Claude
+			// models never advertise it.
+			name: "tool search off",
+			want: map[string]bool{
+				"home-claude-sonnet-5-5":        false,
+				"gpt-5.5":                       true,
+				"mixed/claude-sonnet-5-5":       false,
+				"third-party/claude-sonnet-5-5": false,
+				"old-home/claude-sonnet-5-5":    false,
+				"team/gpt-5.5":                  true,
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := newTestServer(t)
+			server.cfg.Home.Enabled = true
+			setClaudeToolSearchForTest(t, tc.toolSearch)
+			engine := gin.New()
+			engine.GET("/v1/models", server.unifiedModelsHandler(nil, nil))
+			client := newHomeCatalogClient(t, `{
+				"claude":[
+					{"id":"home-claude-sonnet-5-5","native_capabilities":{"tool_search":true}},
+					{"id":"mixed/claude-sonnet-5-5","native_capabilities":{"tool_search":true}},
+					{"id":"third-party/claude-sonnet-5-5","native_capabilities":{"tool_search":false}},
+					{"id":"old-home/claude-sonnet-5-5"}
+				],
+				"codex":[{"id":"gpt-5.5"}],
+				"home-custom":[{"id":"mixed/claude-sonnet-5-5"},{"id":"team/gpt-5.5"}]
+			}`)
+			previousHome := home.Current()
+			home.SetCurrent(client)
+			t.Cleanup(func() { home.SetCurrent(previousHome) })
+
+			request := httptest.NewRequest(http.MethodGet, "/v1/models?client_version=0.153.4", nil)
+			request.Header.Set("Authorization", "Bearer test-key")
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("status = %d, body=%s", recorder.Code, recorder.Body.String())
+			}
+			var response struct {
+				Models []map[string]any `json:"models"`
+			}
+			if errUnmarshal := json.Unmarshal(recorder.Body.Bytes(), &response); errUnmarshal != nil {
+				t.Fatalf("decode Home catalog: %v", errUnmarshal)
+			}
+			want := make(map[string]bool, len(tc.want))
+			for slug, wantSearch := range tc.want {
+				want[slug] = wantSearch
+			}
+			for _, entry := range response.Models {
+				slug, _ := entry["slug"].(string)
+				wantSearch, ok := want[slug]
+				if !ok {
+					continue
+				}
+				delete(want, slug)
+				if got, _ := entry["supports_search_tool"].(bool); got != wantSearch {
+					t.Errorf("%s supports_search_tool = %v, want %v", slug, got, wantSearch)
+				}
+			}
+			if len(want) != 0 {
+				t.Fatalf("missing Home catalog entries: %v", want)
+			}
+		})
+	}
+}
+
 func TestModelsWithClientVersionApplyPatchRequiresExecutor(t *testing.T) {
 	modelRegistry := registry.GetGlobalRegistry()
 	clientID := "http-patch-missing-executor"

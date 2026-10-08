@@ -7,6 +7,7 @@ import (
 	codexauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
 	codexmodels "github.com/router-for-me/CLIProxyAPI/v8/internal/client/codex/models"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
+	responsesclaude "github.com/router-for-me/CLIProxyAPI/v8/internal/translator/claude/openai/responses"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 )
 
@@ -20,12 +21,17 @@ func (h *OpenAIAPIHandler) codexClientModelsResponse(clientVersion ...string) ma
 	if h != nil && h.Cfg != nil && h.Cfg.Client.Codex.EnableApplyPatch {
 		applyPatchCapabilityForModel = h.SupportsApplyPatchModel
 	}
+	var toolSearchCapabilityForModel codexmodels.ToolSearchCapabilityForModelFunc
+	if h != nil && responsesclaude.ClientToolSearchEnabled() {
+		toolSearchCapabilityForModel = h.SupportsNativeToolSearchModel
+	}
 	modelRegistry := registry.GetGlobalRegistry()
 	return codexmodels.BuildResponseForClientWithToolCapabilities(
 		h.Models(),
 		modelRegistry.GetModelProviders,
 		modelRegistry.GetResponsesWebSearchCapability,
 		applyPatchCapabilityForModel,
+		toolSearchCapabilityForModel,
 		optimizeMultiAgentV2,
 		version,
 		codexOAuthPlanLabel(h),
