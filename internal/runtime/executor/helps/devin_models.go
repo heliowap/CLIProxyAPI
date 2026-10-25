@@ -211,12 +211,28 @@ func ResolveDevinChatModelUID(rawModel string, thinkingLevel string, budgetToken
 		return canonicalBase
 	}
 
-	// 8. If model has no thinking levels defined in catalog, treat as bare model
+	// 8. Lightning tier: upstream UIDs keep the effort before the suffix
+	// (swe-2-high-lightning), unlike every other model which appends effort.
+	if strings.HasSuffix(canonicalBase, "-lightning") {
+		stem := strings.TrimSuffix(canonicalBase, "-lightning")
+		if HasDevinEffortSuffix(stem) {
+			// Already a full upstream UID such as swe-2-high-lightning
+			return canonicalBase
+		}
+		if len(allowedLevels) == 0 {
+			return canonicalBase
+		}
+		defaultEffort := selectDefaultDevinEffort(stem, allowedLevels)
+		clamped := clampEffort(effort, allowedLevels, defaultEffort)
+		return stem + "-" + clamped + "-lightning"
+	}
+
+	// 9. If model has no thinking levels defined in catalog, treat as bare model
 	if len(allowedLevels) == 0 {
 		return canonicalBase
 	}
 
-	// 9. Model has thinking levels: determine default effort and clamp
+	// 10. Model has thinking levels: determine default effort and clamp
 	defaultEffort := selectDefaultDevinEffort(canonicalBase, allowedLevels)
 	clamped := clampEffort(effort, allowedLevels, defaultEffort)
 	return canonicalBase + "-" + clamped
